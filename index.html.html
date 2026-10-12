@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>Skins & Kills - Tactical Arena</title>
+    <style>
+        body { margin: 0; background: #0b0b11; color: #fff; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; overflow: hidden; }
+        canvas { background: #14141c; border: 3px solid #00ffaa; box-shadow: 0 0 20px rgba(0,255,170,0.2); }
+        #menu-loja { width: 900px; display: flex; justify-content: space-between; background: #1b1b26; padding: 15px; border-radius: 6px 6px 0 0; border-bottom: 2px solid #333; font-weight: bold; font-size: 18px; }
+        .btn-loja { background: #00ffaa; color: #000; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-weight: bold; margin-left: 10px; }
+        .btn-loja:hover { background: #00cc88; }
+        #info { margin-top: 10px; color: #888; font-size: 12px; text-align: center; }
+    </style>
+</head>
+<body>
+
+    <!-- Interface de Custo e Economia do Jogo -->
+    <div id="menu-loja">
+        <div>KILLS: <span id="txtKills" style="color:#ff3b30;">0</span></div>
+        <div>SUAS MOEDAS (GP): <span id="txtMoedas" style="color:#ffcc00;">\$0</span></div>
+        <div>
+            <span>LOJA DE SKINS:</span>
+            <button class="btn-loja" onclick="comprarSkin('#00ffaa', 0)">Faca Padrão (\$0)</button>
+            <button class="btn-loja" onclick="comprarSkin('#ffcc00', 150)">Skin Gold (\$150 GP)</button>
+            <button class="btn-loja" onclick="comprarSkin('#ff0055', 300)">Skin Cyber (\$300 GP)</button>
+        </div>
+    </div>
+
+    <canvas id="gameCanvas" width="900" height="500"></canvas>
+
+    <div id="info">
+        <strong>[W][A][S][D]</strong> Mover | <strong>[MOUSE]</strong> Mirar em 360° | <strong>[CLIQUE ESQUERDO]</strong> Atirar<br>
+        <span style="color:#00ffaa;">Cada eliminação no Bot te dá \$50 GP para gastar na Loja!</span>
+    </div>
+
+    <script>
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+
+        // Sistema de Economia (Igual ao CrossFire)
+        let kills = 0;
+        let moedasGP = 0;
+        let corJogador = "#00ffaa"; // Cor da skin atual
+
+        class Soldado {
+            constructor(x, y, cor, isBot) {
+                this.x = x; this.y = y; this.raio = 15; this.cor = cor;
+                this.hp = 100; this.vel = 3.8; this.angulo = 0;
+                this.isBot = isBot; this.ultimoTiro = 0;
+            }
+        }
+
+        const p1 = new Soldado(100, 250, corJogador, false);
+        const bot = new Soldado(800, 250, "#ff3b30", true);
+        let projeteis = [];
+
+        // Labirinto Tático de Caixas (Estilo mapa "Navio" do CrossFire)
+        const caixas = [
+            {x: 250, y: 100, w: 60, h: 120},
+            {x: 250, y: 280, w: 60, h: 120},
+            {x: 590, y: 100, w: 60, h: 120},
+            {x: 590, y: 280, w: 60, h: 120},
+            {x: 420, y: 200, w: 60, h: 100}
+        ];
+
+        // Rastreamento do Mouse
+        let mx = 0, my = 0, clicado = false;
+        canvas.addEventListener("mousemove", e => {
+            const rect = canvas.getBoundingClientRect();
+            mx = e.clientX - rect.left; my = e.clientY - rect.top;
+        });
+        window.addEventListener("mousedown", e => { if(e.button === 0) clicado = true; });
+        window.addEventListener("mouseup", e => { if(e.button === 0) clicado = false; });
+
+        const teclas = {};
+        window.addEventListener("keydown", e => teclas[e.key.toLowerCase()] = true);
+        window.addEventListener("keyup", e => teclas[e.key.toLowerCase()] = false);
+
+        function checarColisao(x, y, raio) {
+            // Bordas da Arena
+            if (x - raio < 0 || x + raio > canvas.width || y - raio < 0 || y + raio > canvas.height) return true;
+            // Caixas de Cobertura
+            for (let c of caixas) {
+                let px = Math.max(c.x, Math.min(x, c.x + c.w));
+                let py = Math.max(c.y, Math.min(y, c.y + c.h));
+                if (Math.hypot(x - px, y - py) < raio) return true;
+            }
+            return false;
+        }
+
+        function comprarSkin(cor, custo) {
+            if (moedasGP >= custo) {
+                moedasGP -= custo;
+                corJogador = cor;
+                p1.cor = cor;
+                document.getElementById("txtMoedas").innerText = `$${moedasGP}`;
+            } else {
+                alert("Moedas de GP insuficientes! Elimine o bot para ganhar mais.");
+            }
+        }
+
+        function loop() {
+            // Movimentação Jogador
+            let px = p1.x, py = p1.y;
+            if (teclas["w"]) py -= p1.vel; if (teclas["s"]) py += p1.vel;
+            if (!checarColisao(p1.x, py, p1.raio)) p1.y = py;
+            if (teclas["a"]) px -= p1.vel; if (teclas["d"]) px += p1.vel;
+            if (!checarColisao(px, p1.y, p1.raio)) p1.x = px;
+
+            p1.angulo = Math.atan2(my - p1.y, mx - p1.x);
+
+            // Tiro Jogador
+            if (clicado && Date.now() - p1.ultimoTiro > 180) {
+                projeteis.push({ x: p1.x, y: p1.y, dx: Math.cos(p1.angulo), dy: Math.sin(p1.angulo), vel: 12, dono: "p1" });
+                p1.ultimoTiro = Date.now();
+            }
+
+            // Inteligência do Bot (Inimigo)
+            bot.angulo = Math.atan2(p1.y - bot.y, p1.x - bot.x);
+            if (Date.now() - bot.ultimoTiro > 600) {
+                projeteis.push({ x: bot.x, y: bot.y, dx: Math.cos(bot.angulo), dy: Math.sin(bot.angulo), vel: 8, dono: "bot" });
+                bot.ultimoTiro = Date.now();
+            }
+            // Movimento simples do Bot perseguindo
+            let bx = bot.x + Math.cos(bot.angulo) * bot.vel * 0.4;
+            let by = bot.y + Math.sin(bot.angulo) * bot.vel * 0.4;
+            if (!checarColisao(bx, bot.y, bot.raio)) bot.x = bx;
+            if (!checarColisao(bot.x, by, bot.raio)) bot.y = by;
+
+            // Física das Balas
+            for (let i = projeteis.length - 1; i >= 0; i--) {
+                let p = projeteis[i];
+                p.x += p.dx * p.vel; p.y += p.dy * p.vel;
+
+                // Colisão com caixas limpa a bala
+                if (checarColisao(p.x, p.y, 3)) { projeteis.splice(i, 1); continue; }
+
+                // Hit no Bot
+                if (p.dono === "p1" && Math.hypot(bot.x - p.x, bot.y - p.y) < bot.raio) {
+                    bot.hp -= 25; projeteis.splice(i, 1);
+                    if (bot.hp <= 0) {
+                        kills++; moedasGP += 50; // Dá recompensa em dinheiro do jogo
+                        bot.x = 800; bot.y = 250; bot.hp = 100;
+                    }
+                    continue;
+                }
+                // Hit no Jogador
+                if (p.dono === "bot" && Math.hypot(p1.x - p.x, p1.y - p.y) < p1.raio) {
+                    p1.hp -= 20; projeteis.splice(i, 1);
+                    if (p1.hp <= 0) { p1.x = 100; p1.y = 250; p1.hp = 100; }
+                    continue;
+                }
+            }
+
+            // Desenhar Tudo
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Desenhar Caixas do Cenário
+            ctx.fillStyle = "#3a2f28";
+            for (let c of caixas) {
+                ctx.fillRect(c.x, c.y, c.w, c.h);
+                ctx.strokeStyle = "#ffaa00"; ctx.strokeRect(c.x, c.y, c.w, c.h);
+            }
+
+            // Desenhar Você (Verde/Skin comprada)
+            ctx.save(); ctx.translate(p1.x, p1.y); ctx.rotate(p1.angulo);
+            ctx.fillStyle = p1.cor; ctx.beginPath(); ctx.arc(0,0, p1.raio, 0, Math.PI*2); ctx.fill();
+            ctx.fillStyle = "#fff"; ctx.fillRect(0, -3, 20, 6); ctx.restore();
+
+            // Desenhar Bot (Vermelho)
+            ctx.save(); ctx.translate(bot.x, bot.y); ctx.rotate(bot.angulo);
+            ctx.fillStyle = bot.cor; ctx.beginPath(); ctx.arc(0,0, bot.raio, 0, Math.PI*2); ctx.fill();
+            ctx.fillStyle = "#fff"; ctx.fillRect(0, -3, 20, 6); ctx.restore();
+
+            // Balas
+            for (let p of projeteis) {
+                ctx.fillStyle = p.dono === "p1" ? "#00ffaa" : "#ff3b30";
+                ctx.beginPath(); ctx.arc(p.x, p.y, 4, 0, Math.PI*2); ctx.fill();
+            }
+
+            // Atualiza UI
+            document.getElementById("txtKills").innerText = kills;
+            document.getElementById("txtMoedas").innerText = `$${moedasGP} GP`;
+
+            requestAnimationFrame(loop);
+        }
+        loop();
+    </script>
+</body>
+</html>
